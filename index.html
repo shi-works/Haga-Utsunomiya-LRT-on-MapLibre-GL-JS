@@ -53,6 +53,33 @@
             margin: 0;
             cursor: ew-resize;
         }
+
+        .legend {
+            background-color: #fff;
+            border-radius: 3px;
+            bottom: 60px;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.10);
+            font: 12px/14px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            padding: 10px;
+            position: absolute;
+            right: 10px;
+            z-index: 1;
+            line-height: 10px;
+            height: auto;
+        }
+
+        .legend h4 {
+            margin: 0 0 10px;
+        }
+
+        .legend div span {
+            border-radius: 50%;
+            display: inline-block;
+            height: 15px;
+            margin-right: 10px;
+            width: 15px;
+            color: orangered
+        }
     </style>
 </head>
 
@@ -65,6 +92,12 @@
             <label>航空写真オルソ画像 不透明度: <span id="ortho-slider-opacity-value">100%</span></label>
             <input id="ortho-slider-opacity" type="range" min="0" max="100" step="0" value="100">
         </div>
+    </div>
+    <div id='legend' class='legend'>
+        <h4>凡例</h4>
+        <div><img src="./img/ylw-circle.png" alt="停留場" style="width:20px; height:20px;" />芳賀・宇都宮LRT 停留場</div><br>
+        <div><img src="./img/location-pin-blue.png" alt="バス停" style="width:20px; height:20px;" />関東自動車 バス停</div>
+        <br>
     </div>
     <script type="text/javascript">
         // protocolの設定
@@ -654,7 +687,7 @@
                 }
             });
 
-            // 宇都宮LRT電停ポイントソース
+            // 宇都宮LRT停留場ポイントソース
             map.addSource('lrt-point', {
                 type: 'geojson',
                 // lineMetrics: true,
@@ -670,7 +703,7 @@
                 }
             );
 
-            // 宇都宮LRT電停シンボルレイヤ
+            // 宇都宮LRT停留場シンボルレイヤ
             map.addLayer({
                 'id': 'lrt-point-symbol',
                 "type": "symbol",
@@ -690,7 +723,7 @@
                 }
             });
 
-            // 宇都宮LRT電停ラベルレイヤ
+            // 宇都宮LRT停留場ラベルレイヤ
             map.addLayer({
                 id: 'lrt-point-label',
                 type: 'symbol',
