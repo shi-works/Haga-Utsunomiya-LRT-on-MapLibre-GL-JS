@@ -1,0 +1,833 @@
+<html>
+
+<head>
+    <title>宇都宮 公共交通マップ</title>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src='https://unpkg.com/maplibre-gl@3.1.0/dist/maplibre-gl.js'></script>
+    <link href='https://unpkg.com/maplibre-gl@3.1.0/dist/maplibre-gl.css' rel='stylesheet' />
+    <script src="https://unpkg.com/pmtiles@2.10.0/dist/index.js"></script>
+    <script type="module" src="maplibre-gl-gsi-terrain-fast-png.js"></script>
+    <style>
+        body {
+            margin: 0;
+        }
+
+        #map {
+            height: 100%;
+            width: 100%;
+        }
+
+        .map-overlay {
+            font: bold 12px/20px 'Helvetica Neue', Arial, Helvetica, sans-serif;
+            position: absolute;
+            width: 220px;
+            bottom: 20px;
+            left: 0;
+            padding: 10px;
+        }
+
+        .map-overlay .map-overlay-inner {
+            background-color: #fff;
+            box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+            border-radius: 3px;
+            padding: 10px;
+            margin-bottom: 10px;
+        }
+
+        .map-overlay label {
+            display: block;
+            margin: 0 0 0px;
+            font-size: 12px;
+            top: 100px;
+            left: 10px;
+            display: block;
+            margin-bottom: 5px;
+        }
+
+        .map-overlay input {
+            background-color: transparent;
+            display: inline-block;
+            width: 100%;
+            position: relative;
+            margin: 0;
+            cursor: ew-resize;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="map"></div>
+    <div class="map-overlay top">
+        <div class="map-overlay-inner">
+            <label>陰影起伏図 不透明度: <span id="hillshade-slider-opacity-value">0%</span></label>
+            <input id="hillshade-slider-opacity" type="range" min="0" max="100" step="1" value="0">
+            <label>航空写真オルソ画像 不透明度: <span id="ortho-slider-opacity-value">100%</span></label>
+            <input id="ortho-slider-opacity" type="range" min="0" max="100" step="0" value="100">
+        </div>
+    </div>
+    <script type="text/javascript">
+        // protocolの設定
+        let protocol = new pmtiles.Protocol();
+        maplibregl.addProtocol("pmtiles", protocol.tile);
+
+        // マップの初期化
+        const map = new maplibregl.Map({
+            container: 'map',
+            // style: 'std.json',
+            // style: 'skeleton.json',
+            style: 'https://tile2.openstreetmap.jp/styles/osm-bright-ja/style.json',
+            zoom: 15.17,
+            minZoom: 1,
+            maxZoom: 23,
+            pitch: 0,
+            bearing: 0,
+            center: [139.900733, 36.558959],
+            hash: true,
+            attributionControl: false
+        });
+
+        // ズーム・回転
+        map.addControl(new maplibregl.NavigationControl());
+
+        // フルスクリーンモードのオンオフ
+        map.addControl(new maplibregl.FullscreenControl());
+
+        // 現在位置表示
+        map.addControl(new maplibregl.GeolocateControl({
+            positionOptions: {
+                enableHighAccuracy: false
+            },
+            fitBoundsOptions: { maxZoom: 18 },
+            trackUserLocation: true,
+            showUserLocation: true
+        }));
+
+        // スケール表示
+        map.addControl(new maplibregl.ScaleControl({
+            maxWidth: 200,
+            unit: 'metric'
+        }));
+
+        // Attributionを折りたたみ表示
+        map.addControl(new maplibregl.AttributionControl({
+            compact: true,
+            customAttribution: '（<a href="https://twitter.com/shi__works" target="_blank">Twitter</a> | <a href="https://github.com/shi-works/civil-engineering-heritage-map-2022-on-maplibre-gl-js" target="_blank">Github</a>） '
+        }));
+
+        // 3D地形コントロール
+        map.addControl(
+            new maplibregl.TerrainControl({
+                source: 'gsidem',
+                exaggeration: 5 // 標高を強調する倍率
+            })
+        );
+
+        map.on('load', () => {
+            // 標高タイルソース
+            map.addSource("gsidem", {
+                type: 'raster-dem',
+                tiles: [
+                    'gsidem://https://cyberjapandata.gsi.go.jp/xyz/dem_png/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html#dem" target="_blank">地理院タイル(標高タイル)</a>',
+                tileSize: 256
+            });
+
+            // map.setTerrain({ 'source': 'gsidem', 'exaggeration': 1 });
+
+            // 陰影起伏図ソース
+            map.addSource("hillshade", {
+                type: 'raster',
+                tiles: [
+                    'https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png',
+                ],
+                attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html#hillshademap" target="_blank">地理院タイル(陰影起伏図)</a>',
+                tileSize: 256
+            });
+
+            // 陰影起伏図レイヤ
+            map.addLayer({
+                id: 'hillshade-tiles',
+                type: 'raster',
+                source: 'hillshade',
+                minzoom: 2,
+                maxzoom: 18,
+                paint: {
+                    'raster-opacity': 0
+                }
+            });
+
+            // スライダーで陰影起伏図の不透明度を制御
+            const hillshadesliderOpactiy = document.getElementById('hillshade-slider-opacity');
+            const hillshadesliderOpactiyValue = document.getElementById('hillshade-slider-opacity-value');
+
+            hillshadesliderOpactiy.addEventListener('input', (e) => {
+                map.setPaintProperty(
+                    'hillshade-tiles',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                hillshadesliderOpactiyValue.textContent = e.target.value + '%';
+            });
+
+            // 全国最新写真（シームレス）ソース
+            map.addSource('seamlessphoto', {
+                type: 'raster',
+                tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
+                tileSize: 256,
+                attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html#seamlessphoto">全国最新写真（シームレス）</a>'
+            });
+
+            // 全国最新写真（シームレス）レイヤ
+            map.addLayer({
+                id: 'seamlessphoto',
+                type: 'raster',
+                source: 'seamlessphoto',
+                minzoom: 10,
+                maxzoom: 19,
+                paint: {
+                    'raster-opacity': 1
+                }
+            });
+
+            // 航空写真オルソ画像タイルソース
+            map.addSource('plateau-ortho', {
+                type: 'raster',
+                tiles: [
+                    'https://gic-plateau.s3.ap-northeast-1.amazonaws.com/2020/ortho/tiles/{z}/{x}/{y}.png'
+                ],
+                minzoom: 10,
+                maxzoom: 19,
+                attribution: "<a href='https://github.com/Project-PLATEAU/plateau-streaming-tutorial' target='_blank'>PLATEAU配信サービス（試験運用）</a>"
+            });
+
+            // 空写真オルソ画像タイルレイヤ
+            map.addLayer({
+                id: 'plateau-ortho',
+                type: 'raster',
+                source: 'plateau-ortho',
+                paint: {
+                    'raster-opacity': 1
+                }
+            });
+
+            // スライダーで航空写真オルソ画像タイルの不透明度を制御
+            const orthosliderOpactiy = document.getElementById('ortho-slider-opacity');
+            const orthosliderOpactiyValue = document.getElementById('ortho-slider-opacity-value');
+
+            orthosliderOpactiy.addEventListener('input', (e) => {
+                map.setPaintProperty(
+                    'plateau-ortho',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                map.setPaintProperty(
+                    'seamlessphoto',
+                    'raster-opacity',
+                    parseInt(e.target.value, 10) / 100
+                );
+                orthosliderOpactiyValue.textContent = e.target.value + '%';
+            });
+
+            // 人口集中地区ソース
+            map.addSource("did", {
+                type: "vector",
+                url: "pmtiles://" + "https://xs489works.xsrv.jp/pmtiles-data/r2DID/2020_did_ddsw_01-47_JGD2011.pmtiles",
+                attribution: '<a href="https://www.e-stat.go.jp/gis">政府統計の総合窓口[e-Stat] 人口集中地区（2020年）</a>'
+            });
+
+            // 人口集中地区ポリゴンレイヤ
+            map.addLayer({
+                "id": "did-polygon",
+                "source": "did",
+                "source-layer": "2020_did_ddsw_0147_JGD2011fgb",
+                "type": "fill",
+                "paint": {
+                    'fill-color': 'rgb(255, 255, 0)',
+                    'fill-opacity': 0.15
+                }
+            });
+
+            // 関東自動車・運行頻度ラインソース
+            map.addSource('kantobus-line', {
+                type: 'geojson',
+                lineMetrics: true,
+                data: "./gtfs-data/kanto_jidousha_20230926134249/frequency.geojson",
+                attribution: '<a href="https://www.ptd-hs.jp/">ジョルダン「公共交通データhubシステム」</a>'
+            });
+
+            // 関東自動車・運行頻度ラインレイヤ
+            map.addLayer({
+                id: 'kantobus-line-1',
+                type: 'line',
+                source: 'kantobus-line',
+                paint: {
+                    'line-color': 'rgba(153, 255, 255, 1)',
+                    'line-width': [
+                        "step",
+                        ["get", "frequency"],
+                        2,
+                        10, 4,
+                        20, 6,
+                        40, 8,
+                        60, 10,
+                        80, 12,
+                        100, 14,
+                        200, 20,
+                        400, 30
+                    ],
+                    'line-blur': 1,
+                    'line-opacity': 1
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round'
+                }
+            });
+
+            // 宇都宮LRTラインソース
+            map.addSource('lrt-line', {
+                type: 'geojson',
+                lineMetrics: true,
+                data: "./gtfs-data/Haga-Utsunomiya-LRT-GTFS-main/route.geojson",
+                attribution: '<a href="https://github.com/magn01ia/Haga-Utsunomiya-LRT-GTFS">Haga-Utsunomiya-LRT-GTFS</a>'
+            });
+
+            // 宇都宮LRTラインレイヤ
+            map.addLayer({
+                id: 'lrt-line-1',
+                type: 'line',
+                source: 'lrt-line',
+                paint: {
+                    'line-color': 'rgba(244, 194, 21, 0.3)',
+                    'line-width': 30,
+                    'line-blur': 0.8
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round'
+                }
+            });
+
+            // 宇都宮LRTラインレイヤ
+            map.addLayer({
+                id: 'lft-line-2',
+                type: 'line',
+                source: 'lrt-line',
+                paint: {
+                    'line-color': 'rgba(246, 203, 65, 0.6)',
+                    'line-width': 18,
+                    'line-blur': 0.4
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round'
+                }
+            });
+
+            // 宇都宮LRTラインレイヤ
+            map.addLayer({
+                id: 'lrt-line-3',
+                type: 'line',
+                source: 'lrt-line',
+                paint: {
+                    'line-color': 'rgba(253, 248, 230, 1)',
+                    'line-width': 7.5
+                },
+                layout: {
+                    'line-cap': 'round',
+                    'line-join': 'round'
+                }
+            });
+
+            // 宇都宮LRTラインラベル
+            map.addLayer({
+                id: 'lrt-line-label',
+                type: 'symbol',
+                source: 'lrt-line',
+                layout: {
+                    'text-field': ['get', 'route_name'],
+                    'symbol-placement': 'line-center', // ラベルを線に沿って配置
+                    'text-rotation-alignment': 'map', // ラベルの回転を線に沿って調整
+                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-offset': [0, -1]
+                },
+                paint: {
+                    'text-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-color': 'rgba(0, 0, 0, 0.75)', // テキストの周りにハロー効果を追加
+                    'text-halo-width': 2 // ハロー効果の幅を設定
+                }
+            });
+
+            // PLATEAU建築物ソース
+            map.addSource("pmtiles-lod1-Building", {
+                type: "vector",
+                url: "pmtiles://" + "https://xs489works.xsrv.jp/pmtiles-data/plateau/09201_utsunomiya-shi_lod1_Building.pmtiles",
+                attribution: '<a href="https://www.geospatial.jp/ckan/dataset/plateau">3D都市モデル「Project PLATEAU」 建築物（国土交通省）を加工して作成</a>'
+            });
+
+            // PLATEAU建築物レイヤ
+            map.addLayer({
+                'id': 'lod1-Building',
+                'source': 'pmtiles-lod1-Building',
+                'source-layer': '09201_utsunomiyashi_lod1_Buildingfgb',
+                "minzoom": 13,
+                "maxzoom": 23,
+                'type': 'fill-extrusion',
+                'paint': {
+                    "fill-extrusion-color": [
+                        "interpolate",
+                        ["linear"],
+                        ["get", "bldg_measuredHeight"],
+                        0, "#00984C",  // 緑色で0m
+                        50, "#320065" // 赤色で50m
+                    ],
+                    "fill-extrusion-opacity": 0.5,
+                    "fill-extrusion-height": ["get", "bldg_measuredHeight"]
+                }
+            });
+
+            // 鉄道路線ソース
+            map.addSource('railroad', {
+                'type': 'geojson',
+                'data': 'https://xs489works.xsrv.jp//GIS-Data/e-stat/N02-22_RailroadSection.geojson',
+                attribution: '<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-v3_1.html">国土数値情報 鉄道データ（令和4年度）</a>'
+            });
+
+            // 鉄道駅ソース
+            map.addSource('station', {
+                'type': 'geojson',
+                'data': 'https://xs489works.xsrv.jp//GIS-Data/e-stat/N02-22_Station.geojson',
+                attribution: '<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-v3_1.html">国土数値情報 鉄道データ（令和4年度）</a>'
+            });
+
+            // JR以外の鉄道路線ラインレイヤ
+            map.addLayer({
+                'id': 'non-jr-railroad-lines',
+                'type': 'line',
+                'source': 'railroad',
+                minzoom: 7.5,
+                maxzoom: 23,
+                'filter': ['!', ['in', ['get', 'N02_002'], ['literal', ['1', '2']]]],
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'butt'
+                },
+                'paint': {
+                    'line-color': 'rgb(63, 63, 63)',
+                    'line-width': 2,
+                    'line-opacity': 1.0
+                }
+            });
+
+            // JRの鉄道路線ラインレイヤ
+            // 黒色の実線のレイヤー
+            // ズームレベル12～23
+            map.addLayer({
+                'id': 'jr-railroad-lines-black-1',
+                'type': 'line',
+                'source': 'railroad',
+                minzoom: 12,
+                maxzoom: 23,
+                'filter': ['in', ['get', 'N02_002'], ['literal', ['1', '2']]],
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'butt'
+                },
+                'paint': {
+                    'line-color': 'rgb(63, 63, 63)',
+                    'line-width': 4,
+                    'line-opacity': 1.0
+                }
+            });
+
+            // 黒色の実線のレイヤー
+            // ズームレベル1～12
+            map.addLayer({
+                'id': 'jr-railroad-lines-black-2',
+                'type': 'line',
+                'source': 'railroad',
+                minzoom: 7.5,
+                maxzoom: 12,
+                'filter': ['in', ['get', 'N02_002'], ['literal', ['1', '2']]],
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'round'
+                },
+                'paint': {
+                    'line-color': 'rgb(63, 63, 63)',
+                    'line-width': 4,
+                    'line-opacity': 1.0
+                }
+            });
+
+            // 白色の点線のレイヤー（白色の実線のレイヤーの上に重ねる）
+            // ズームレベル12～23
+            map.addLayer({
+                'id': 'jr-railroad-lines-white-dotted-3',
+                'type': 'line',
+                'source': 'railroad',
+                minzoom: 12,
+                maxzoom: 23,
+                'filter': ['in', ['get', 'N02_002'], ['literal', ['1', '2']]],
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'butt'
+                },
+                'paint': {
+                    'line-color': 'rgb(255, 255, 255)',
+                    'line-dasharray': [3, 3], // 点線を生成
+                    'line-width': 3,
+                    'line-opacity': 1.0
+                }
+            });
+
+            // 鉄道駅ラインレイヤ
+            map.addLayer({
+                'id': 'station-lines',
+                'type': 'line',
+                'source': 'station',
+                minzoom: 12,
+                maxzoom: 18,
+                'layout': {
+                    'line-join': 'round',
+                    'line-cap': 'butt'
+                },
+                'paint': {
+                    'line-color': 'rgb(0, 0, 0)',
+                    'line-width': 4,
+                    'line-opacity': 1.0
+                }
+            });
+
+            // 鉄道駅ラベルレイヤ
+            map.addLayer({
+                'id': 'station-labels-1',
+                'type': 'symbol',
+                'source': 'station',
+                minzoom: 12,
+                maxzoom: 15,
+                'layout': {
+                    'text-field': ['concat', ['to-string', ['get', 'N02_005']]],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-anchor': 'center',
+                    'text-justify': 'center',
+                    'symbol-placement': 'line-center',
+                    'text-offset': [0, -0.75],
+                },
+                'paint': {
+                    'text-color': 'rgba(0, 101, 0, 1)',
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 1
+                },
+                'filter': ['in', ['get', 'N02_002'], ['literal', ['1', '2']]]
+            });
+
+            // 鉄道駅ラベルレイヤ
+            map.addLayer({
+                'id': 'station-labels-2',
+                'type': 'symbol',
+                'source': 'station',
+                minzoom: 12,
+                maxzoom: 18,
+                'layout': {
+                    'text-field': ['concat', ['to-string', ['get', 'N02_005']]],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-anchor': 'center',
+                    'text-justify': 'center',
+                    'symbol-placement': 'line-center',
+                    'text-offset': [0, -0.75],
+                },
+                'paint': {
+                    'text-color': 'rgba(0, 101, 0, 1)',
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 1
+                }
+            });
+
+            // 鉄道路線ラベルレイヤ
+            map.addLayer({
+                'id': 'railroad-labels',
+                'type': 'symbol',
+                'source': 'railroad',
+                minzoom: 1,
+                maxzoom: 15,
+                'layout': {
+                    'text-field': ['concat', ['to-string', ['get', 'N02_004']], " ", ['to-string', ['get', 'N02_003']]],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-anchor': 'center',
+                    'text-justify': 'center',
+                    'text-offset': [0, -0.75],
+                    'symbol-placement': 'line-center'
+                },
+                'paint': {
+                    'text-color': 'rgba(0, 101, 0, 1)',
+                    'text-halo-color': 'rgb(255, 255, 255)',
+                    'text-halo-width': 1
+                }
+            });
+
+            // 関東自動車・運行頻度ラインラベル
+            map.addLayer({
+                id: 'kantobus-line-label',
+                type: 'symbol',
+                source: 'kantobus-line',
+                minzoom: 12,
+                maxzoom: 23,
+                layout: {
+                    'text-field': ['get', 'frequency'],
+                    'symbol-placement': 'line-center', // ラベルを線に沿って配置
+                    'text-rotation-alignment': 'map', // ラベルの回転を線に沿って調整
+                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                    'text-size': 11,
+                    'text-offset': [0, -0.5]
+                },
+                paint: {
+                    'text-color': 'rgba(0, 127, 255, 1)',
+                    'text-halo-color': 'rgba(255, 255, 255, 1)', // テキストの周りにハロー効果を追加
+                    'text-halo-width': 1.5 // ハロー効果の幅を設定
+                }
+            });
+
+
+            // 関東自動車バス停ポイントソース
+            map.addSource('kantobus-point', {
+                type: 'geojson',
+                data: "./gtfs-data/kanto_jidousha_20230926134249/frequency_stops.geojson",
+                attribution: '<a href="https://www.ptd-hs.jp/">ジョルダン「公共交通データhubシステム」</a>'
+            });
+
+            // imegeソース追加
+            map.loadImage('./img/location-pin-blue.png',
+                function (error, image) {
+                    if (error) throw error;
+                    map.addImage('location-pin-blue', image);
+                }
+            );
+
+            // 関東自動車バス停シンボルレイヤ
+            map.addLayer({
+                'id': 'kantobus-point-symbol',
+                "type": "symbol",
+                'source': 'kantobus-point',
+                minzoom: 12,
+                maxzoom: 23,
+                "layout": {
+                    "icon-image": "location-pin-blue",
+                    "icon-size": [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        4, 0.1,  // ズームレベル4でサイズは0.1
+                        12, 0.4  // ズームレベル12でサイズは0.4
+                    ],
+                    "icon-allow-overlap": true // シンボルの重なりを許可
+                }
+            });
+
+            // 関東自動車バス停ラベルレイヤ
+            map.addLayer({
+                id: 'kantobus-point-label',
+                type: 'symbol',
+                'source': 'kantobus-point',
+                minzoom: 15,
+                maxzoom: 23,
+                layout: {
+                    'text-field': ['get', 'similar_stop_name'],
+                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                    'text-size': 10,
+                    'text-offset': [0, 1.5],
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+                    'text-max-width': 20
+                },
+                paint: {
+                    'text-color': 'rgba(0, 127, 255, 1)',
+                    'text-halo-blur': 1,
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 2
+                }
+            });
+
+            // 宇都宮LRT電停ポイントソース
+            map.addSource('lrt-point', {
+                type: 'geojson',
+                // lineMetrics: true,
+                data: "./gtfs-data/Haga-Utsunomiya-LRT-GTFS-main/stops.geojson",
+                attribution: '<a href="https://github.com/magn01ia/Haga-Utsunomiya-LRT-GTFS">Haga-Utsunomiya-LRT-GTFS</a>'
+            });
+
+            // imegeソース追加
+            map.loadImage('./img/ylw-circle.png',
+                function (error, image) {
+                    if (error) throw error;
+                    map.addImage('ylw-circle', image);
+                }
+            );
+
+            // 宇都宮LRT電停シンボルレイヤ
+            map.addLayer({
+                'id': 'lrt-point-symbol',
+                "type": "symbol",
+                'source': 'lrt-point',
+                minzoom: 12,
+                maxzoom: 23,
+                "layout": {
+                    "icon-image": "ylw-circle",
+                    "icon-size": [
+                        'interpolate',
+                        ['linear'],
+                        ['zoom'],
+                        1, 0.1,  // ズームレベル1でサイズは0.2
+                        12, 0.5  // ズームレベル12でサイズは0.6
+                    ],
+                    "icon-allow-overlap": true // シンボルの重なりを許可
+                }
+            });
+
+            // 宇都宮LRT電停ラベルレイヤ
+            map.addLayer({
+                id: 'lrt-point-label',
+                type: 'symbol',
+                'source': 'lrt-point',
+                minzoom: 12,
+                maxzoom: 23,
+                layout: {
+                    'text-field': ['get', 'stop_name'],
+                    'text-font': ['Open Sans Semibold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-offset': [0, 1.5],
+                    'text-allow-overlap': false,
+                    'text-ignore-placement': false,
+                    'text-max-width': 20
+                },
+                paint: {
+                    'text-color': 'rgba(203, 152, 0, 1)',
+                    'text-halo-blur': 1,
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 2
+                }
+            });
+
+            // 役場ソース
+            map.addSource('town-hall', {
+                'type': 'geojson',
+                'data': 'https://xs489works.xsrv.jp//GIS-Data/e-stat/P05-22_01_47_town_hall_add_cityname.geojson',
+                attribution: '<a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-P05-v3_0.html">国土数値情報 市町村役場（令和4年度）</a>'
+            });
+
+            // 役場ポイントレイヤ
+            // 外側の黒い円
+            map.addLayer({
+                'id': 'town-hall-points-outer-1',
+                'type': 'circle',
+                'source': 'town-hall',
+                'minzoom': 9,
+                'maxzoom': 12,
+                'paint': {
+                    'circle-color': 'rgba(0, 0, 0, 1)',
+                    'circle-radius': 5.5,
+                    'circle-blur': 0,
+                    'circle-opacity': 1
+                }
+            });
+
+            // 内側の白い円
+            map.addLayer({
+                'id': 'town-hall-points-inner-1',
+                'type': 'circle',
+                'source': 'town-hall',
+                'minzoom': 9,
+                'maxzoom': 12,
+                'paint': {
+                    'circle-color': 'rgba(255, 255, 255, 1)',
+                    'circle-radius': 4,
+                    'circle-blur': 0,
+                    'circle-opacity': 1
+                }
+            });
+
+            // 外側の黒い円
+            map.addLayer({
+                'id': 'town-hall-points-outer-2',
+                'type': 'circle',
+                'source': 'town-hall',
+                'minzoom': 9,
+                'maxzoom': 12,
+                'paint': {
+                    'circle-color': 'rgba(0, 0, 0, 1)',
+                    'circle-radius': 3,
+                    'circle-blur': 0,
+                    'circle-opacity': 1
+                }
+            });
+
+            // 内側の白い円
+            map.addLayer({
+                'id': 'town-hall-points-inner-2',
+                'type': 'circle',
+                'source': 'town-hall',
+                'minzoom': 9,
+                'maxzoom': 12,
+                'paint': {
+                    'circle-color': 'rgba(255, 255, 255, 1)',
+                    'circle-radius': 2.25,
+                    'circle-blur': 0,
+                    'circle-opacity': 1
+                }
+            });
+
+            // 役場ラベルレイヤ
+            map.addLayer({
+                'id': 'town-hall-labels-1',
+                'type': 'symbol',
+                'source': 'town-hall',
+                minzoom: 9,
+                maxzoom: 12,
+                'layout': {
+                    'text-field': ['get', 'city_name'],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 12,
+                    'text-anchor': 'center',
+                    'text-justify': 'center',
+                    'text-offset': [0, -1.0],
+                },
+                'paint': {
+                    'text-color': 'rgba(0, 0, 0, 1)',
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 1
+                }
+            });
+
+            // 役場ラベルレイヤ
+            map.addLayer({
+                'id': 'town-hall-labels-2',
+                'type': 'symbol',
+                'source': 'town-hall',
+                minzoom: 12,
+                maxzoom: 18,
+                'layout': {
+                    'text-field': ['get', 'city_name'],
+                    'text-font': ['Open Sans Bold', 'Arial Unicode MS Bold'],
+                    'text-size': 18,
+                    'text-anchor': 'center',
+                    'text-justify': 'center',
+                    'text-offset': [0, -1.0],
+                },
+                'paint': {
+                    'text-color': 'rgba(0, 0, 0, 1)',
+                    'text-halo-color': 'rgba(255, 255, 255, 1)',
+                    'text-halo-width': 2
+                }
+            });
+
+        });
+    </script>
+</body>
+
+</html>
